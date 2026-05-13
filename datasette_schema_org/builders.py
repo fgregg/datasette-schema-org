@@ -57,8 +57,24 @@ def _apply_defaults(jsonld, plugin_config):
         jsonld.setdefault(key, value)
     if plugin_config.get("creator"):
         jsonld.setdefault("creator", plugin_config["creator"])
+    if plugin_config.get("publisher"):
+        jsonld.setdefault("publisher", plugin_config["publisher"])
+    elif plugin_config.get("creator"):
+        jsonld.setdefault("publisher", plugin_config["creator"])
     if plugin_config.get("license"):
         jsonld.setdefault("license", plugin_config["license"])
+
+
+def _apply_per_db(jsonld, db_meta):
+    """Per-database fields that override plugin defaults."""
+    temporal = db_meta.get("temporal_coverage")
+    if temporal:
+        jsonld["temporalCoverage"] = temporal
+    source_org = _maybe_json(db_meta.get("source_organization"))
+    if source_org:
+        jsonld["sourceOrganization"] = source_org
+    if db_meta.get("license"):
+        jsonld["license"] = db_meta["license"]
 
 
 def _merge_keywords(plugin_config, meta):
@@ -177,6 +193,7 @@ async def _build_database_dataset(database, request, datasette):
     if keywords:
         jsonld["keywords"] = keywords
 
+    _apply_per_db(jsonld, db_meta)
     _apply_defaults(jsonld, plugin_config)
     return jsonld
 
@@ -236,5 +253,6 @@ async def _build_table_dataset(database, table, request, datasette):
     if keywords:
         jsonld["keywords"] = keywords
 
+    _apply_per_db(jsonld, db_meta)
     _apply_defaults(jsonld, plugin_config)
     return jsonld
