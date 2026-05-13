@@ -185,6 +185,8 @@ async def _build_table_dataset(database, table, request, datasette):
     base = _base_url(request, datasette)
     db = datasette.databases[database]
 
+    if table not in set(await db.table_names()):
+        return None  # canned query URL or unknown name — skip in v0.1
     hidden = set(await db.hidden_table_names())
     if not _is_visible_table(table, hidden):
         return None
