@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "datasette-schema-org"
+version = "0.1.0a0"
+description = "Datasette plugin that emits schema.org Dataset/DataCatalog JSON-LD for indexing by Google Dataset Search and AI data curators"
+readme = "README.md"
+authors = [{ name = "Forest Gregg" }]
+license = { text = "Apache-2.0" }
+requires-python = ">=3.9"
+classifiers = [
+    "Framework :: Datasette",
+    "License :: OSI Approved :: Apache Software License",
+]
+dependencies = ["datasette>=0.60"]
+
+[project.urls]
+Homepage = "https://github.com/labordata/datasette-schema-org"
+
+[project.entry-points.datasette]
+schema_org = "datasette_schema_org"
+
+[project.optional-dependencies]
+test = ["pytest>=7", "pytest-asyncio", "httpx"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["datasette_schema_org"]
