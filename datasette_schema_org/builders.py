@@ -142,10 +142,8 @@ async def _build_catalog(request, datasette):
         )
         if description:
             entry["description"] = description
-        if plugin_config.get("creator"):
-            entry["creator"] = plugin_config["creator"]
-        if db_meta.get("license") or plugin_config.get("license"):
-            entry["license"] = db_meta.get("license") or plugin_config["license"]
+        _apply_per_db(entry, db_meta)
+        _apply_defaults(entry, plugin_config)
         catalog["dataset"].append(entry)
 
     keywords = _merge_keywords(plugin_config, metadata)
@@ -212,15 +210,10 @@ async def _build_database_dataset(database, request, datasette):
         )
         if table_description:
             entry["description"] = table_description
-        if plugin_config.get("creator"):
-            entry["creator"] = plugin_config["creator"]
-        license_ = (
-            table_meta.get("license")
-            or db_meta.get("license")
-            or plugin_config.get("license")
-        )
-        if license_:
-            entry["license"] = license_
+        if table_meta.get("license"):
+            entry["license"] = table_meta["license"]
+        _apply_per_db(entry, db_meta)
+        _apply_defaults(entry, plugin_config)
         has_part.append(entry)
     if has_part:
         jsonld["hasPart"] = has_part
