@@ -196,11 +196,32 @@ async def _build_database_dataset(database, request, datasette):
         jsonld["isBasedOn"] = based_on
 
     hidden = set(await db.hidden_table_names())
-    has_part = [
-        {"@type": "Dataset", "@id": f"{base}/{database}/{name}"}
-        for name in await db.table_names()
-        if _is_visible_table(name, hidden)
-    ]
+    has_part = []
+    for name in await db.table_names():
+        if not _is_visible_table(name, hidden):
+            continue
+        table_meta = await datasette.get_resource_metadata(database, name)
+        entry = {
+            "@type": "Dataset",
+            "@id": f"{base}/{database}/{name}",
+            "url": f"{base}/{database}/{name}",
+            "name": table_meta.get("title") or name,
+        }
+        table_description = table_meta.get("description") or strip_html(
+            table_meta.get("description_html", "")
+        )
+        if table_description:
+            entry["description"] = table_description
+        if plugin_config.get("creator"):
+            entry["creator"] = plugin_config["creator"]
+        license_ = (
+            table_meta.get("license")
+            or db_meta.get("license")
+            or plugin_config.get("license")
+        )
+        if license_:
+            entry["license"] = license_
+        has_part.append(entry)
     if has_part:
         jsonld["hasPart"] = has_part
 
