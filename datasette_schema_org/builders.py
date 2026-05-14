@@ -110,22 +110,17 @@ def _inspect_db(datasette, database):
 
 
 def _row_count(datasette, database, table):
-    """Exact row count from inspect_data, or None if capped/missing.
+    """Exact row count from inspect_data, or None if missing.
 
-    Datasette's `datasette inspect` caps counts at count_limit+1 (10001) to
-    avoid expensive full-table scans on large tables. A value of exactly
-    count_limit+1 means "the table has at least this many rows" — not an
-    exact count — so we omit `size` in that case rather than emit a
-    misleading number.
+    Relies on `datasette inspect` producing uncapped counts (fgregg's
+    no_limit_csv fork emits these; upstream Datasette caps at 10001 to
+    speed up table-listing pages). Returns None when the count is
+    missing or null in inspect-data.json — never substitutes a capped
+    value.
     """
-    count = (
+    return (
         (_inspect_db(datasette, database).get("tables") or {}).get(table) or {}
     ).get("count")
-    db = datasette.databases.get(database)
-    cap = (getattr(db, "count_limit", 10000) or 10000) + 1
-    if count is None or count >= cap:
-        return None
-    return count
 
 
 def _file_size(datasette, database):
