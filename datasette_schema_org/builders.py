@@ -128,10 +128,25 @@ async def _build_catalog(request, datasette):
     if description:
         catalog["description"] = description
 
-    catalog["dataset"] = [
-        {"@type": "Dataset", "@id": f"{base}/{name}"}
-        for name, _ in _describable_databases(datasette)
-    ]
+    catalog["dataset"] = []
+    for name, _ in _describable_databases(datasette):
+        db_meta = await datasette.get_database_metadata(name)
+        entry = {
+            "@type": "Dataset",
+            "@id": f"{base}/{name}",
+            "url": f"{base}/{name}",
+            "name": db_meta.get("title") or name,
+        }
+        description = db_meta.get("description") or strip_html(
+            db_meta.get("description_html", "")
+        )
+        if description:
+            entry["description"] = description
+        if plugin_config.get("creator"):
+            entry["creator"] = plugin_config["creator"]
+        if db_meta.get("license") or plugin_config.get("license"):
+            entry["license"] = db_meta.get("license") or plugin_config["license"]
+        catalog["dataset"].append(entry)
 
     keywords = _merge_keywords(plugin_config, metadata)
     if keywords:
