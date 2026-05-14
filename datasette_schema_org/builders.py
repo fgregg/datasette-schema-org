@@ -105,6 +105,37 @@ def _is_visible_table(table_name, hidden):
     return table_name not in hidden and not table_name.startswith("sqlite_")
 
 
+def _inspect_db(datasette, database):
+    return (getattr(datasette, "inspect_data", None) or {}).get(database) or {}
+
+
+def _row_count(datasette, database, table):
+    """Exact row count from inspect_data, or None if capped/missing.
+
+    Datasette's `datasette inspect` caps counts at count_limit+1 (10001) to
+    avoid expensive full-table scans on large tables. A value of exactly
+    count_limit+1 means "the table has at least this many rows" — not an
+    exact count — so we omit `size` in that case rather than emit a
+    misleading number.
+    """
+    count = (
+        (_inspect_db(datasette, database).get("tables") or {}).get(table) or {}
+    ).get("count")
+    db = datasette.databases.get(database)
+    cap = (getattr(db, "count_limit", 10000) or 10000) + 1
+    if count is None or count >= cap:
+        return None
+    return count
+
+
+def _file_size(datasette, database):
+    return _inspect_db(datasette, database).get("size")
+
+
+def _rows_quantitative(count):
+    return {"@type": "QuantitativeValue", "value": count, "unitText": "rows"}
+
+
 async def build_jsonld(view_name, database, table, request, datasette):
     if view_name == "index":
         return await _build_catalog(request, datasette)
@@ -180,19 +211,24 @@ async def _build_database_dataset(database, request, datasette):
             "@id": f"{base}/",
             "url": f"{base}/",
         },
-        "distribution": [
-            {
-                "@type": "DataDownload",
-                "encodingFormat": "application/x-sqlite3",
-                "contentUrl": f"{base}/{database}.db",
-            },
-            {
-                "@type": "DataDownload",
-                "encodingFormat": "application/json",
-                "contentUrl": f"{base}/{database}.json",
-            },
-        ],
     }
+
+    sqlite_dist = {
+        "@type": "DataDownload",
+        "encodingFormat": "application/x-sqlite3",
+        "contentUrl": f"{base}/{database}.db",
+    }
+    file_size = _file_size(datasette, database)
+    if file_size:
+        sqlite_dist["contentSize"] = str(file_size)
+    jsonld["distribution"] = [
+        sqlite_dist,
+        {
+            "@type": "DataDownload",
+            "encodingFormat": "application/json",
+            "contentUrl": f"{base}/{database}.json",
+        },
+    ]
 
     description = db_meta.get("description") or strip_html(
         db_meta.get("description_html", "")
@@ -225,6 +261,9 @@ async def _build_database_dataset(database, request, datasette):
             entry["description"] = table_description
         if table_meta.get("license"):
             entry["license"] = table_meta["license"]
+        count = _row_count(datasette, database, name)
+        if count is not None:
+            entry["size"] = _rows_quantitative(count)
         _apply_per_db(entry, db_meta)
         _apply_defaults(entry, plugin_config)
         has_part.append(entry)
@@ -287,6 +326,10 @@ async def _build_table_dataset(database, table, request, datasette):
     )
     if description:
         jsonld["description"] = description
+
+    count = _row_count(datasette, database, table)
+    if count is not None:
+        jsonld["size"] = _rows_quantitative(count)
 
     columns = await db.table_columns(table)
     units = _maybe_json(table_meta.get("units")) or {}
