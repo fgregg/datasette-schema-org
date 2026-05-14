@@ -245,18 +245,27 @@ async def _build_table_dataset(database, table, request, datasette):
     table_meta = await datasette.get_resource_metadata(database, table)
     plugin_config = _plugin_config(datasette)
 
+    parent = {
+        "@type": "Dataset",
+        "@id": f"{base}/{database}",
+        "url": f"{base}/{database}",
+        "name": db_meta.get("title") or database,
+    }
+    parent_description = db_meta.get("description") or strip_html(
+        db_meta.get("description_html", "")
+    )
+    if parent_description:
+        parent["description"] = parent_description
+    _apply_per_db(parent, db_meta)
+    _apply_defaults(parent, plugin_config)
+
     jsonld = {
         "@context": "https://schema.org/",
         "@type": "Dataset",
         "@id": f"{base}/{database}/{table}",
         "url": f"{base}/{database}/{table}",
         "name": table_meta.get("title") or table,
-        "isPartOf": {
-            "@type": "Dataset",
-            "@id": f"{base}/{database}",
-            "url": f"{base}/{database}",
-            "name": db_meta.get("title") or database,
-        },
+        "isPartOf": parent,
         "includedInDataCatalog": {
             "@type": "DataCatalog",
             "@id": f"{base}/",
