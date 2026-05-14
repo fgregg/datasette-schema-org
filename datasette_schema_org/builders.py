@@ -166,7 +166,11 @@ async def _build_database_dataset(database, request, datasette):
         "@id": f"{base}/{database}",
         "url": f"{base}/{database}",
         "name": db_meta.get("title") or database,
-        "includedInDataCatalog": {"@type": "DataCatalog", "@id": f"{base}/"},
+        "includedInDataCatalog": {
+            "@type": "DataCatalog",
+            "@id": f"{base}/",
+            "url": f"{base}/",
+        },
         "distribution": [
             {
                 "@type": "DataDownload",
@@ -248,7 +252,11 @@ async def _build_table_dataset(database, table, request, datasette):
         "url": f"{base}/{database}/{table}",
         "name": table_meta.get("title") or table,
         "isPartOf": {"@type": "Dataset", "@id": f"{base}/{database}"},
-        "includedInDataCatalog": {"@type": "DataCatalog", "@id": f"{base}/"},
+        "includedInDataCatalog": {
+            "@type": "DataCatalog",
+            "@id": f"{base}/",
+            "url": f"{base}/",
+        },
     }
 
     description = table_meta.get("description") or strip_html(
