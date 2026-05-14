@@ -251,7 +251,12 @@ async def _build_table_dataset(database, table, request, datasette):
         "@id": f"{base}/{database}/{table}",
         "url": f"{base}/{database}/{table}",
         "name": table_meta.get("title") or table,
-        "isPartOf": {"@type": "Dataset", "@id": f"{base}/{database}"},
+        "isPartOf": {
+            "@type": "Dataset",
+            "@id": f"{base}/{database}",
+            "url": f"{base}/{database}",
+            "name": db_meta.get("title") or database,
+        },
         "includedInDataCatalog": {
             "@type": "DataCatalog",
             "@id": f"{base}/",
