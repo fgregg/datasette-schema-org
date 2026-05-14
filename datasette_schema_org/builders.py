@@ -87,11 +87,17 @@ def _merge_keywords(plugin_config, meta):
     return keywords
 
 
+def _excluded_databases(datasette):
+    """Database names opted out of schema.org JSON-LD via plugin config."""
+    return set(_plugin_config(datasette).get("exclude") or [])
+
+
 def _describable_databases(datasette):
+    excluded = _excluded_databases(datasette)
     return [
         (name, db)
         for name, db in datasette.databases.items()
-        if name not in INTERNAL_DATABASES
+        if name not in INTERNAL_DATABASES and name not in excluded
     ]
 
 
@@ -102,9 +108,12 @@ def _is_visible_table(table_name, hidden):
 async def build_jsonld(view_name, database, table, request, datasette):
     if view_name == "index":
         return await _build_catalog(request, datasette)
-    if view_name == "database" and database and database not in INTERNAL_DATABASES:
+    excluded = _excluded_databases(datasette)
+    if database in INTERNAL_DATABASES or database in excluded:
+        return None
+    if view_name == "database" and database:
         return await _build_database_dataset(database, request, datasette)
-    if view_name == "table" and database and table and database not in INTERNAL_DATABASES:
+    if view_name == "table" and database and table:
         return await _build_table_dataset(database, table, request, datasette)
     return None
 
