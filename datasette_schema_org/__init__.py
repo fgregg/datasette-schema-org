@@ -11,7 +11,7 @@ import re
 
 from datasette import hookimpl
 
-from .builders import INTERNAL_DATABASES, build_jsonld
+from .builders import INTERNAL_DATABASES, build_breadcrumb, build_jsonld
 
 __all__ = ["asgi_wrapper"]
 
@@ -71,17 +71,19 @@ def _is_html_response(headers, status):
     return False
 
 
-def _inject(body, jsonld):
-    """Insert the JSON-LD script tag immediately before </head>. Returns
-    the rewritten body, or the original body if </head> is not present."""
+def _inject(body, blocks):
+    """Insert one JSON-LD script tag per block immediately before </head>.
+    Returns the rewritten body, or the original body if </head> is absent."""
     idx = body.lower().find(_HEAD_CLOSE)
     if idx < 0:
         return body
-    script = (
-        b'<script type="application/ld+json">'
-        + json.dumps(jsonld, indent=2).encode("utf-8")
-        + b"</script>\n"
-    )
+    script = b""
+    for block in blocks:
+        script += (
+            b'<script type="application/ld+json">'
+            + json.dumps(block, indent=2).encode("utf-8")
+            + b"</script>\n"
+        )
     return body[:idx] + script + body[idx:]
 
 
@@ -126,22 +128,26 @@ def asgi_wrapper(datasette):
                     return
 
                 # Final chunk: build JSON-LD, splice, emit rewritten response.
-                jsonld = None
-                try:
-                    jsonld = await build_jsonld(
-                        view_name=view_name,
-                        database=database,
-                        table=table,
-                        request=_Request(scope),
-                        datasette=datasette,
-                    )
-                except Exception:
-                    pass
+                request = _Request(scope)
+                blocks = []
+                for builder in (build_jsonld, build_breadcrumb):
+                    try:
+                        block = await builder(
+                            view_name=view_name,
+                            database=database,
+                            table=table,
+                            request=request,
+                            datasette=datasette,
+                        )
+                    except Exception:
+                        block = None
+                    if block:
+                        blocks.append(block)
 
                 body = state["body"]
                 headers = state["headers"]
-                if jsonld:
-                    new_body = _inject(body, jsonld)
+                if blocks:
+                    new_body = _inject(body, blocks)
                     if new_body is not body:
                         headers = [
                             (name, value)

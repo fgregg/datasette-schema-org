@@ -243,6 +243,38 @@ async def build_jsonld(view_name, database, table, request, datasette):
     return None
 
 
+async def build_breadcrumb(view_name, database, table, request, datasette):
+    """schema.org BreadcrumbList for the site -> database -> table hierarchy,
+    so search results show a labeled trail instead of the raw URL. Returns
+    None for the index (it's the root) and for internal/excluded databases.
+    The last entry is the current page, so its `item` URL is omitted per
+    Google's breadcrumb guidance."""
+    if view_name == "index" or not database:
+        return None
+    if database in INTERNAL_DATABASES or database in _excluded_databases(datasette):
+        return None
+    base = _base_url(request, datasette)
+    metadata = await datasette.get_instance_metadata()
+    db_meta = await datasette.get_database_metadata(database)
+    trail = [
+        (metadata.get("title") or "Home", f"{base}/"),
+        (db_meta.get("title") or database, f"{base}/{database}"),
+    ]
+    if view_name == "table" and table:
+        trail.append((table, f"{base}/{database}/{table}"))
+    items = []
+    for position, (name, url) in enumerate(trail, start=1):
+        item = {"@type": "ListItem", "position": position, "name": name}
+        if position < len(trail):  # last item is the current page; omit its URL
+            item["item"] = url
+        items.append(item)
+    return {
+        "@context": "https://schema.org/",
+        "@type": "BreadcrumbList",
+        "itemListElement": items,
+    }
+
+
 async def _build_catalog(request, datasette):
     base = _base_url(request, datasette)
     metadata = await datasette.get_instance_metadata()
