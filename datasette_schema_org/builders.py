@@ -66,13 +66,16 @@ def _apply_defaults(jsonld, plugin_config):
 
 
 def _apply_per_db(jsonld, db_meta):
-    """Per-database fields that override plugin defaults."""
+    """Per-database fields that override plugin defaults.
+
+    The originating agency is intentionally NOT emitted as sourceOrganization
+    — schema:sourceOrganization means "the org on whose behalf the creator was
+    working," which would falsely imply the dataset's creator works for that
+    agency. The agency is instead the creator of the isBasedOn source (see
+    _is_based_on)."""
     temporal = db_meta.get("temporal_coverage")
     if temporal:
         jsonld["temporalCoverage"] = temporal
-    source_org = _maybe_json(db_meta.get("source_organization"))
-    if source_org:
-        jsonld["sourceOrganization"] = source_org
     if db_meta.get("license"):
         jsonld["license"] = db_meta["license"]
 
@@ -183,6 +186,24 @@ def _apply_identifier(jsonld, db_meta):
         jsonld["identifier"] = identifier
 
 
+def _is_based_on(db_meta):
+    """The upstream source this dataset is derived from (schema:isBasedOn ≡
+    prov:wasDerivedFrom). Built from `source` (name), `source_url` (the
+    upstream's own URL), and `source_organization` (the agency that authored
+    the source — nested as the source's creator, since it created the upstream
+    data, not this compilation)."""
+    source = db_meta.get("source")
+    if not source:
+        return None
+    based_on = {"@type": "Dataset", "name": source}
+    if db_meta.get("source_url"):
+        based_on["url"] = db_meta["source_url"]
+    creator = _maybe_json(db_meta.get("source_organization"))
+    if creator:
+        based_on["creator"] = creator
+    return based_on
+
+
 async def build_jsonld(view_name, database, table, request, datasette):
     if view_name == "index":
         return await _build_catalog(request, datasette)
@@ -283,10 +304,8 @@ async def _build_database_dataset(database, request, datasette):
     if description:
         jsonld["description"] = description
 
-    if db_meta.get("source"):
-        based_on = {"@type": "CreativeWork", "name": db_meta["source"]}
-        if db_meta.get("source_url"):
-            based_on["url"] = db_meta["source_url"]
+    based_on = _is_based_on(db_meta)
+    if based_on:
         jsonld["isBasedOn"] = based_on
 
     hidden = set(await db.hidden_table_names())
@@ -386,20 +405,14 @@ async def _build_table_dataset(database, table, request, datasette):
     if count is not None:
         jsonld["size"] = _rows_quantitative(count)
 
-    # Datasette serves every table as CSV and JSON; advertise both so each
-    # table result gets a Download section. CSV is streamed (?_stream=on) to
-    # export the whole table rather than a single page of rows.
+    # Datasette CSV export: foreign-key labels expanded, _size=max to return
+    # the whole table (anything less truncates), _dl=1 to force a download.
     jsonld["distribution"] = [
         {
             "@type": "DataDownload",
             "encodingFormat": "text/csv",
-            "contentUrl": f"{base}/{database}/{table}.csv?_stream=on",
-        },
-        {
-            "@type": "DataDownload",
-            "encodingFormat": "application/json",
-            "contentUrl": f"{base}/{database}/{table}.json",
-        },
+            "contentUrl": f"{base}/{database}/{table}.csv?_labels=on&_size=max&_dl=1",
+        }
     ]
 
     columns = await db.table_columns(table)
@@ -417,10 +430,8 @@ async def _build_table_dataset(database, table, request, datasette):
             variables.append(pv)
         jsonld["variableMeasured"] = variables
 
-    if db_meta.get("source"):
-        based_on = {"@type": "CreativeWork", "name": db_meta["source"]}
-        if db_meta.get("source_url"):
-            based_on["url"] = db_meta["source_url"]
+    based_on = _is_based_on(db_meta)
+    if based_on:
         jsonld["isBasedOn"] = based_on
 
     # A table shares its parent database's dates and identifier; compute once
