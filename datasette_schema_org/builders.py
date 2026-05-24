@@ -204,6 +204,26 @@ def _is_based_on(db_meta):
     return based_on
 
 
+def _was_generated_by(db_meta):
+    """prov:wasGeneratedBy node for the pipeline that produced this dataset,
+    built from `code_repository`. The scraper is the tool an Activity *used*
+    to generate the data — distinct from isBasedOn (the source data). schema.org
+    has no native field for this, so it uses PROV; only provenance-aware
+    consumers read it (Google ignores it). Returns None when unset."""
+    repo = db_meta.get("code_repository")
+    if not repo:
+        return None
+    name = repo.rstrip("/").split("github.com/")[-1] if "github.com/" in repo else repo
+    return {
+        "@type": "prov:Activity",
+        "prov:used": {
+            "@type": "SoftwareSourceCode",
+            "name": name,
+            "codeRepository": repo,
+        },
+    }
+
+
 async def build_jsonld(view_name, database, table, request, datasette):
     if view_name == "index":
         return await _build_catalog(request, datasette)
@@ -344,6 +364,11 @@ async def _build_database_dataset(database, request, datasette):
         jsonld["datePublished"] = published
     _apply_identifier(jsonld, db_meta)
 
+    generated_by = _was_generated_by(db_meta)
+    if generated_by:
+        jsonld["prov:wasGeneratedBy"] = generated_by
+        jsonld["@context"] = ["https://schema.org/", {"prov": "http://www.w3.org/ns/prov#"}]
+
     keywords = _merge_keywords(plugin_config, db_meta)
     if keywords:
         jsonld["keywords"] = keywords
@@ -444,6 +469,11 @@ async def _build_table_dataset(database, table, request, datasette):
         if published:
             target["datePublished"] = published
         _apply_identifier(target, db_meta)
+
+    generated_by = _was_generated_by(db_meta)
+    if generated_by:
+        jsonld["prov:wasGeneratedBy"] = generated_by
+        jsonld["@context"] = ["https://schema.org/", {"prov": "http://www.w3.org/ns/prov#"}]
 
     keywords = _merge_keywords(plugin_config, db_meta)
     if keywords:
