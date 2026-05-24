@@ -201,6 +201,12 @@ def _is_based_on(db_meta):
     creator = _maybe_json(db_meta.get("source_organization"))
     if creator:
         based_on["creator"] = creator
+    # An upstream that is itself derived from a further source (e.g. a
+    # compiled dataset built from an original database) nests its own
+    # isBasedOn here, expressing the full derivation chain.
+    nested = _maybe_json(db_meta.get("source_based_on"))
+    if nested:
+        based_on["isBasedOn"] = nested
     return based_on
 
 
