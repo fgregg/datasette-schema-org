@@ -147,12 +147,11 @@ def _iso_datetime(value):
 
 
 async def _date_modified(database, datasette, db_meta):
-    """schema.org dateModified from a per-database `date_modified_sql` query.
-
-    The query is operator-supplied config (not user input) and must return a
-    single date/datetime scalar — typically the latest import timestamp, e.g.
-    `select max(load_dt) from cases`. Returns an ISO 8601 string, or None when
-    unconfigured, empty, or the query fails (never breaks page rendering).
+    """schema.org dateModified from the `date_modified_sql` query, e.g.
+    `select max(load_dt) from cases`. Derived (not editorial) so it tracks
+    data freshness automatically. The query is config, not user input, and
+    must return a single date/datetime scalar. Returns None when unconfigured,
+    empty, or the query fails (never breaks page rendering).
     """
     sql = db_meta.get("date_modified_sql")
     if not sql:
@@ -165,6 +164,23 @@ async def _date_modified(database, datasette, db_meta):
     if not row or row[0] is None:
         return None
     return _iso_datetime(row[0])
+
+
+def _published_date(db_meta):
+    """schema.org datePublished from a literal `date_published` metadata value
+    (a date string such as "2015-02-20"). Editorial and stable — unlike
+    dateModified it is set explicitly, not derived from the data."""
+    value = db_meta.get("date_published")
+    return _iso_datetime(value) if value else None
+
+
+def _apply_identifier(jsonld, db_meta):
+    """Per-database `identifier` (e.g. a DOI) passthrough. Accepts a string or
+    a JSON list; omitted when unset. Powers Google's citation/version
+    clustering for datasets that have a persistent identifier."""
+    identifier = _maybe_json(db_meta.get("identifier"))
+    if identifier:
+        jsonld["identifier"] = identifier
 
 
 async def build_jsonld(view_name, database, table, request, datasette):
@@ -301,9 +317,13 @@ async def _build_database_dataset(database, request, datasette):
     if has_part:
         jsonld["hasPart"] = has_part
 
-    date_modified = await _date_modified(database, datasette, db_meta)
-    if date_modified:
-        jsonld["dateModified"] = date_modified
+    modified = await _date_modified(database, datasette, db_meta)
+    if modified:
+        jsonld["dateModified"] = modified
+    published = _published_date(db_meta)
+    if published:
+        jsonld["datePublished"] = published
+    _apply_identifier(jsonld, db_meta)
 
     keywords = _merge_keywords(plugin_config, db_meta)
     if keywords:
@@ -366,6 +386,22 @@ async def _build_table_dataset(database, table, request, datasette):
     if count is not None:
         jsonld["size"] = _rows_quantitative(count)
 
+    # Datasette serves every table as CSV and JSON; advertise both so each
+    # table result gets a Download section. CSV is streamed (?_stream=on) to
+    # export the whole table rather than a single page of rows.
+    jsonld["distribution"] = [
+        {
+            "@type": "DataDownload",
+            "encodingFormat": "text/csv",
+            "contentUrl": f"{base}/{database}/{table}.csv?_stream=on",
+        },
+        {
+            "@type": "DataDownload",
+            "encodingFormat": "application/json",
+            "contentUrl": f"{base}/{database}/{table}.json",
+        },
+    ]
+
     columns = await db.table_columns(table)
     units = _maybe_json(table_meta.get("units")) or {}
 
@@ -387,11 +423,16 @@ async def _build_table_dataset(database, table, request, datasette):
             based_on["url"] = db_meta["source_url"]
         jsonld["isBasedOn"] = based_on
 
-    # Tables refresh with their parent database, so they share its freshness.
-    date_modified = await _date_modified(database, datasette, db_meta)
-    if date_modified:
-        jsonld["dateModified"] = date_modified
-        parent["dateModified"] = date_modified
+    # A table shares its parent database's dates and identifier; compute once
+    # and stamp both the table dataset and the embedded isPartOf parent.
+    modified = await _date_modified(database, datasette, db_meta)
+    published = _published_date(db_meta)
+    for target in (jsonld, parent):
+        if modified:
+            target["dateModified"] = modified
+        if published:
+            target["datePublished"] = published
+        _apply_identifier(target, db_meta)
 
     keywords = _merge_keywords(plugin_config, db_meta)
     if keywords:
