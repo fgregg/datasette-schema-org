@@ -131,6 +131,42 @@ def _rows_quantitative(count):
     return {"@type": "QuantitativeValue", "value": count, "unitText": "rows"}
 
 
+def _iso_datetime(value):
+    """Normalize a SQLite date/datetime scalar to ISO 8601.
+
+    SQLite stores datetimes as e.g. "2026-04-22 17:14:37+00:00"; schema.org
+    wants a 'T' separator. A bare date ("2026-04-22") is already valid and
+    passes through unchanged.
+    """
+    s = str(value).strip()
+    if not s:
+        return None
+    if " " in s and "T" not in s:
+        s = s.replace(" ", "T", 1)
+    return s
+
+
+async def _date_modified(database, datasette, db_meta):
+    """schema.org dateModified from a per-database `date_modified_sql` query.
+
+    The query is operator-supplied config (not user input) and must return a
+    single date/datetime scalar — typically the latest import timestamp, e.g.
+    `select max(load_dt) from cases`. Returns an ISO 8601 string, or None when
+    unconfigured, empty, or the query fails (never breaks page rendering).
+    """
+    sql = db_meta.get("date_modified_sql")
+    if not sql:
+        return None
+    try:
+        result = await datasette.databases[database].execute(sql)
+        row = result.first()
+    except Exception:
+        return None
+    if not row or row[0] is None:
+        return None
+    return _iso_datetime(row[0])
+
+
 async def build_jsonld(view_name, database, table, request, datasette):
     if view_name == "index":
         return await _build_catalog(request, datasette)
@@ -265,6 +301,10 @@ async def _build_database_dataset(database, request, datasette):
     if has_part:
         jsonld["hasPart"] = has_part
 
+    date_modified = await _date_modified(database, datasette, db_meta)
+    if date_modified:
+        jsonld["dateModified"] = date_modified
+
     keywords = _merge_keywords(plugin_config, db_meta)
     if keywords:
         jsonld["keywords"] = keywords
@@ -346,6 +386,12 @@ async def _build_table_dataset(database, table, request, datasette):
         if db_meta.get("source_url"):
             based_on["url"] = db_meta["source_url"]
         jsonld["isBasedOn"] = based_on
+
+    # Tables refresh with their parent database, so they share its freshness.
+    date_modified = await _date_modified(database, datasette, db_meta)
+    if date_modified:
+        jsonld["dateModified"] = date_modified
+        parent["dateModified"] = date_modified
 
     keywords = _merge_keywords(plugin_config, db_meta)
     if keywords:
