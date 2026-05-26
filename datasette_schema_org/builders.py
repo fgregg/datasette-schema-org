@@ -195,12 +195,13 @@ def _is_based_on(db_meta):
     source = db_meta.get("source")
     if not source:
         return None
-    # CreativeWork (not Dataset): an isBasedOn source is a reference, so it
-    # shouldn't carry Dataset's required description/license — and Google's
-    # validator enforces those when the type is Dataset.
-    based_on = {"@type": "CreativeWork", "name": source}
+    based_on = {"@type": "Dataset", "name": source}
     if db_meta.get("source_url"):
         based_on["url"] = db_meta["source_url"]
+    if db_meta.get("source_description"):
+        based_on["description"] = db_meta["source_description"]
+    if db_meta.get("source_license"):
+        based_on["license"] = db_meta["source_license"]
     creator = _maybe_json(db_meta.get("source_organization"))
     if creator:
         based_on["creator"] = creator
